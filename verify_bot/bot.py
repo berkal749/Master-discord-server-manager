@@ -5,6 +5,7 @@ import logging
 import os
 import time
 import uuid
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -33,6 +34,19 @@ ETAT_LABELS = {
     "RNTG": "Non admissible",
     "RS": "Redoublant",
 }
+
+
+def _etat_display(etat: str) -> str:
+    """Format the Etat column; the new list leaves it empty for most students."""
+    etat = (etat or "").strip()
+    if not etat:
+        return "—"
+    label = ETAT_LABELS.get(etat.upper())
+    return f"{etat} ({label})" if label else etat
+
+
+def _display(value: str) -> str:
+    return (value or "").strip() or "—"
 
 # ---- anti-spam / timeout settings ----
 MAX_STRIKES = 3
@@ -467,6 +481,21 @@ class VerifyBot(commands.Bot):
     async def on_app_command_completion(self, interaction: discord.Interaction, command: app_commands.Command):
         log.info("Command /%s completed for %s", command.name, interaction.user)
 
+    async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        original = getattr(error, "original", error)
+        if isinstance(original, discord.NotFound) and original.code == 10062:
+            log.warning("Interaction expired before response (10062) for /%s — user: %s",
+                        interaction.command.name if interaction.command else "?", interaction.user)
+            return
+        log.exception("Unhandled error in /%s", interaction.command.name if interaction.command else "?")
+        if not interaction.response.is_done():
+            try:
+                await interaction.response.send_message(
+                    "❌ An unexpected error occurred. Please try again.", ephemeral=True
+                )
+            except discord.HTTPException:
+                pass
+
     async def _send_startup_message(self):
         channel_ids = self.config.get("startup_channel_ids")
         if not channel_ids and self.config.get("mod_channel_id"):
@@ -496,11 +525,31 @@ class VerifyBot(commands.Bot):
 
     # ---------- student list ----------
 
+    def _resolve_xlsx(self) -> Path:
+        raw = str(self.config.get("xlsx_file", "students.xlsx"))
+        candidate_path = Path(raw)
+        if candidate_path.is_absolute():
+            candidates = [candidate_path]
+        else:
+            candidates = [
+                BASE_DIR / candidate_path,
+                BASE_DIR.parent / candidate_path,
+                BASE_DIR / candidate_path.name,
+                BASE_DIR.parent / candidate_path.name,
+            ]
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+        raise FileNotFoundError(
+            f"Student xlsx `{raw}` not found. Looked in: "
+            + ", ".join(str(c) for c in candidates)
+        )
+
     def reload_students(self):
-        xlsx = BASE_DIR / self.config.get("xlsx_file", "students.xlsx")
+        xlsx = self._resolve_xlsx()
         self.students, self.skipped_rows = load_students(str(xlsx))
         log.info("Loaded %d students from %s (%d rows skipped)",
-                 len(self.students), xlsx.name, self.skipped_rows)
+                 len(self.students), xlsx, self.skipped_rows)
 
     def _find_matricule_for_user(self, user_id: int):
         return self.verified.get(str(user_id))
@@ -512,7 +561,7 @@ class VerifyBot(commands.Bot):
 
     def _register_commands(self):
         cfg = self.config
-        verified_role = cfg.get("verified_role", "SII Verified")
+        verified_role = cfg.get("verified_role", "S2I Verified")
         unverified_role = cfg.get("unverified_role", "SII Unverified")
 
         # --------- /verify ---------
@@ -600,22 +649,6 @@ class VerifyBot(commands.Bot):
                 await _notify_mods(self, interaction, mat, student, "wrong speciality")
                 return
 
-            if not student.is_admis:
-                await _apply_role(interaction, unverified_role)
-                log_verification(
-                    uid, uname, dname, mat,
-                    full_name=student.full_name, section=student.section,
-                    td=student.groupe_td, tp=student.groupe_tp,
-                    status="NOT_ADMIS",
-                )
-                etat_label = ETAT_LABELS.get(student.etat.upper(), student.etat)
-                await interaction.response.send_message(
-                    f"`{mat}` matches **{student.full_name}** but their status is **{etat_label}**.\n"
-                    "Only **Admis (ADM)** students are verified. Please contact the administration.",
-                )
-                await _notify_mods(self, interaction, mat, student, f"etat={student.etat}")
-                return
-
             role_ok = await _apply_role(interaction, verified_role)
 
             unverified = discord.utils.get(interaction.guild.roles, name=unverified_role)
@@ -640,8 +673,8 @@ class VerifyBot(commands.Bot):
                 status="OK",
             )
 
-            td = student.groupe_td or "?"
-            tp = student.groupe_tp or "?"
+            td = _display(student.groupe_td)
+            tp = _display(student.groupe_tp)
             role_note = "" if role_ok else "\n*(Could not assign the verified role automatically — ask a moderator.)*"
             group_note = ""
             if group_role_assigned:
@@ -680,7 +713,6 @@ class VerifyBot(commands.Bot):
                 )
                 return
 
-            etat_label = ETAT_LABELS.get(student.etat.upper(), student.etat)
             await interaction.response.send_message(
                 f"🎓 **Your student record**\n"
                 f"**Name:** {student.full_name}\n"
@@ -688,8 +720,8 @@ class VerifyBot(commands.Bot):
                 f"**Palier:** {student.palier}\n"
                 f"**Spécialité:** {student.specialite}\n"
                 f"**Section:** {student.section}\n"
-                f"**Statut:** {student.etat} ({etat_label})\n"
-                f"**Groupe TD:** `{student.groupe_td or '?'}` · **Groupe TP:** `{student.groupe_tp or '?'}`",
+                f"**Statut:** {_etat_display(student.etat)}\n"
+                f"**Groupe TD:** `{_display(student.groupe_td)}` · **Groupe TP:** `{_display(student.groupe_tp)}`",
                 ephemeral=True,
             )
 
@@ -711,8 +743,8 @@ class VerifyBot(commands.Bot):
 
             await interaction.response.send_message(
                 f"📚 **Your groups**\n"
-                f"TD: **{student.groupe_td or '?'}** *(assigned as a role)*\n"
-                f"TP: **{student.groupe_tp or '?'}** *(informational)*\n"
+                f"TD: **{_display(student.groupe_td)}** *(assigned as a role)*\n"
+                f"TP: **{_display(student.groupe_tp)}** *(informational)*\n"
                 f"Section: **{student.section}** · Palier: **{student.palier}**",
                 ephemeral=True,
             )
@@ -821,7 +853,7 @@ class VerifyBot(commands.Bot):
             await interaction.response.send_message(
                 f"👤 **{student.full_name}**\n"
                 f"Palier: {student.palier} · Section: **{student.section}**\n"
-                f"TD: **{student.groupe_td or '?'}** · TP: **{student.groupe_tp or '?'}**",
+                f"TD: **{_display(student.groupe_td)}** · TP: **{_display(student.groupe_tp)}**",
                 ephemeral=True,
             )
 
@@ -1373,11 +1405,10 @@ class VerifyBot(commands.Bot):
             if student is None:
                 await interaction.response.send_message(f"`{mat}`: not found in the database.", ephemeral=True)
                 return
-            etat_label = ETAT_LABELS.get(student.etat.upper(), student.etat)
             await interaction.response.send_message(
                 f"**{student.full_name}** — {student.palier} {student.specialite} (Section {student.section})\n"
-                f"Matricule: `{student.matricule}` · Status: **{student.etat}** ({etat_label})\n"
-                f"Groupe TD: {student.groupe_td or '?'} · TP: {student.groupe_tp or '?'}",
+                f"Matricule: `{student.matricule}` · Status: **{_etat_display(student.etat)}**\n"
+                f"Groupe TD: {_display(student.groupe_td)} · TP: {_display(student.groupe_tp)}",
                 ephemeral=True,
             )
 
@@ -1387,8 +1418,16 @@ class VerifyBot(commands.Bot):
         async def stats(interaction: discord.Interaction):
             total = len(self.students)
             sii = sum(1 for s in self.students.values() if s.is_sii)
-            admis = sum(1 for s in self.students.values() if s.is_admis)
-            sii_admis = sum(1 for s in self.students.values() if s.is_sii and s.is_admis)
+            etat_counts = Counter(
+                (s.etat or "").strip().upper()
+                for s in self.students.values()
+                if (s.etat or "").strip()
+            )
+            etat_summary = (
+                ", ".join(f"{code}: {count}" for code, count in sorted(etat_counts.items()))
+                or "not set"
+            )
+            without_etat = total - sum(etat_counts.values())
 
             verified_role_obj = discord.utils.get(interaction.guild.roles, name=verified_role)
             verified_count = len(verified_role_obj.members) if verified_role_obj else 0
@@ -1407,8 +1446,8 @@ class VerifyBot(commands.Bot):
                 f"📊 **Bot Statistics**\n"
                 f"**Students loaded:** {total}\n"
                 f"**SII students:** {sii}\n"
-                f"**Admis (all):** {admis}\n"
-                f"**SII + Admis (verifiable):** {sii_admis}\n"
+                f"**États in list:** {etat_summary}\n"
+                f"**No état in list:** {without_etat}\n"
                 f"**Verified members in this server:** {verified_count}\n"
                 f"**Rows skipped in xlsx:** {self.skipped_rows}\n"
                 f"**Linked accounts (verified.json):** {len(self.verified)}\n"
@@ -1441,7 +1480,8 @@ class VerifyBot(commands.Bot):
                 return
 
             lines = [
-                f"`{s.matricule}` — **{s.full_name}** · {s.palier} {s.specialite} · {s.etat}"
+                f"`{s.matricule}` — **{s.full_name}** · {s.palier} {s.specialite}"
+                + (f" · {s.etat.strip()}" if s.etat.strip() else "")
                 for s in matches
             ]
             header = f"🔎 **{len(matches)} result(s)** for `{query}`"
