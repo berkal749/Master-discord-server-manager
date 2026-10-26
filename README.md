@@ -1,6 +1,6 @@
-# 🎓 SII Verify Bot
+# 🎓 Bioinfo Verify Bot
 
-A Discord bot that checks people are **real M1 SII A students** using the official university list (the `.xlsx` file).
+A Discord bot that checks people are **real M1 Bioinfo students** using the official university list (the `.xlsx` file).
 
 - Sends you your student info
 - Gives you a **verified role** + your **TD group role**
@@ -12,7 +12,7 @@ A Discord bot that checks people are **real M1 SII A students** using the offici
 
 ### 1) Verify yourself
 
-Go to the **#verify** channel and run:
+Go to the **#mat** channel and run:
 
 ```
 /verify 222231378114
@@ -22,10 +22,10 @@ Go to the **#verify** channel and run:
 
 | Result | What happens |
 | --- | --- |
-| ✅ You're on the list, SII + Admis | You get the **SII Verified** role + your TD group role (e.g. `G1`) |
-| ❌ Not on the list / not SII / not Admis | You get the **VISITOR** role and a message explaining why |
+| ✅ You're on the list, Bioinfo + Admis | You get the **Bioinfo Verified** role + your TD group role (e.g. `G1`) |
+| ❌ Not on the list / not Bioinfo / not Admis | You get the **VISITOR** role and a message explaining why |
 
-> Only send your matricule (a number) in #verify. If you spam non-numbers, the bot will **time you out** for 5 minutes after 3 tries.
+> Only send your matricule (a number) in #mat. If you spam non-numbers, the bot will **time you out** for 5 minutes after 3 tries.
 
 ### 2) Useful commands
 
@@ -56,7 +56,7 @@ pip install -r requirements.txt
 
 1. Copy `config.example.json` → `config.json`
 2. Fill in your **bot token**, guild ID, role names and channel IDs
-3. Create the roles **SII Verified**, **VISITOR**, and `G1`...`G3` in your server
+3. Create the roles **Bioinfo Verified**, **VISITOR**, and `G1`...`G2` in your server (supports up to 2 groups)
 4. ### ⚠️ Never share `config.json` — it contains your secret bot token
 
 ```bash

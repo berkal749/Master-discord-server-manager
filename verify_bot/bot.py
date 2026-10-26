@@ -561,12 +561,12 @@ class VerifyBot(commands.Bot):
 
     def _register_commands(self):
         cfg = self.config
-        verified_role = cfg.get("verified_role", "S2I Verified")
-        unverified_role = cfg.get("unverified_role", "SII Unverified")
+        verified_role = cfg.get("verified_role", "Bioinfo Verified")
+        unverified_role = cfg.get("unverified_role", "Bioinfo Unverified")
 
         # --------- /verify ---------
 
-        @self.tree.command(name="verify", description="Check your matricule and get verified as an SII student")
+        @self.tree.command(name="verify", description="Check your matricule and get verified as a Bioinfo student")
         @app_commands.describe(matricule="Your university matricule number")
         async def verify(interaction: discord.Interaction, matricule: str):
             if not isinstance(interaction.channel, discord.TextChannel):
@@ -581,7 +581,7 @@ class VerifyBot(commands.Bot):
                 return
             if interaction.channel.id != verify_channel_id:
                 await interaction.response.send_message(
-                    f"❌ Please use `/verify` in <#{verify_channel_id}> only.",
+                    f"❌ Please use `/verify` in <#{verify_channel_id}> (channel: mat) only.",
                     ephemeral=True,
                 )
                 log.info(
@@ -628,7 +628,7 @@ class VerifyBot(commands.Bot):
                 await _apply_role(interaction, unverified_role)
                 log_verification(uid, uname, dname, mat, status="NOT_IN_LIST")
                 await interaction.response.send_message(
-                    f"`{mat}` is **not** on the SII student list, so you can't be verified as an SII student.\n"
+                    f"`{mat}` is **not** on the Bioinfo student list, so you can't be verified as a Bioinfo student.\n"
                     "If you believe this is a mistake, contact a moderator.",
                 )
                 await _notify_mods(self, interaction, mat, None, "not in list")
@@ -643,8 +643,8 @@ class VerifyBot(commands.Bot):
                     status="WRONG_SPECIALITY",
                 )
                 await interaction.response.send_message(
-                    f"`{mat}` matches **{student.full_name}** but their speciality is **{student.specialite}**, not SII.\n"
-                    "You can't be verified as an SII student.",
+                    f"`{mat}` matches **{student.full_name}** but their speciality is **{student.specialite}**, not Bioinfo.\n"
+                    "You can't be verified as a Bioinfo student.",
                 )
                 await _notify_mods(self, interaction, mat, student, "wrong speciality")
                 return
@@ -1604,7 +1604,7 @@ class VerifyBot(commands.Bot):
             await interaction.response.send_message(
                 "**📖 Available commands**\n\n"
                 "**For students**\n"
-                "`/verify <matricule>` — Verify yourself (only in the verify channel)\n"
+                "`/verify <matricule>` — Verify yourself (only in the #mat channel)\n"
                 "`/mes_infos` — Show your full student record\n"
                 "`/mes_groupes` — Show your TD and TP groups\n"
                 "`/mes_camarades` — List classmates in your TD group\n"
